@@ -14,6 +14,8 @@ The production dashboard, API and Socket.IO endpoint run from one Render web ser
 6. In GitHub, open **Actions → Build Android companion APK → Run workflow** and enter the Render HTTPS service URL (for example `https://sevan-connect.onrender.com`). Download `app-debug.apk` from the workflow artifact or GitHub Releases. The release updates the in-app APK download and share link.
 7. On the phone, open the app and explicitly approve sharing. The phone can use any network with internet access. Open the deployed dashboard and enter the admin pairing code; its device list updates while the companion is connected.
 
+After the admin connects the dashboard, use **Offer shown in phone app** to set an offer title, message, HTTPS link, and button label, then select **Publish offer to phones**. The phone app shows only the current offer and its link; it does not show admin-dashboard controls or links. Offers are public content. The companion connects to load and receive offer updates, but sends device details only after the phone user separately approves sharing. Offers are currently held in server memory and reset when the service restarts or sleeps; connected phones receive the latest offer again after the admin republishes it.
+
 If you created a Render service manually instead of using the Blueprint, set its branch to `main`, leave **Root Directory** empty, set **Build Command** to `npm install && npm run build`, set **Start Command** to `npm start`, and set **Health Check Path** to `/api/health`. Root dependencies include both the Vite build tool and backend runtime packages, so this also works with Render's default `npm install && npm run build`. Do not use `npm run preview` as the production start command; it only serves the static UI and does not start the API or socket backend.
 
 For a manually created service, add a private `PAIRING_CODE` environment variable in Render. Generate a long random value and keep it private. The Blueprint generates this variable automatically.
@@ -55,6 +57,6 @@ On Windows, use `gradlew.bat assembleDebug`. The APK is written to `android/app/
 
 - Render generates a private pairing code. Treat it as a credential; rotate it if exposed.
 - Pairing attempts are throttled. Dashboard/API/socket traffic shares the HTTPS origin in production, and CORS is restricted to the deployed origin and local development origins.
-- Installing the APK alone does not connect a phone or send data. The owner must open the app and approve sharing; the app must be open or allowed to run for live updates. Remembering consent is optional and can be revoked by unchecking the sharing consent in the companion.
+- Installing the APK alone does not launch it. The owner must open it once to load offers. Device details are sent only after a separate approval in the phone app; the optional remembered approval can be revoked in its privacy section.
 - Online presence is in memory and disappears on server restart until clients reconnect. The companion must be open or allowed to run for live updates; Android may pause background apps.
 - Files/photos, contacts, SMS/call history, notification forwarding, and live screen streaming are not implemented. They require separate Android APIs, user approvals, and additional security work. Nothing is collected merely by installing the app.

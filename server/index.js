@@ -53,6 +53,35 @@ const io = new Server(server, {
 const devices = new Map();
 const failedPairings = new Map();
 const DIST_DIR = path.resolve(__dirname, "../dist");
+let currentOffer = {
+  title: "No offer right now",
+  description: "Please check back later.",
+  linkUrl: "",
+  buttonLabel: "",
+  updatedAt: null,
+};
+
+function normalizeOffer(payload) {
+  if (!payload || typeof payload !== "object") throw new Error("Offer details are required.");
+  const title = String(payload.title || "").trim().slice(0, 100);
+  const description = String(payload.description || "").trim().slice(0, 500);
+  const linkUrl = String(payload.linkUrl || "").trim().slice(0, 2048);
+  const buttonLabel = String(payload.buttonLabel || "View offer").trim().slice(0, 40);
+  if (!title || !description) throw new Error("Enter an offer title and description.");
+  if (!linkUrl) throw new Error("Enter an HTTPS offer link.");
+
+  let parsedLink;
+  try {
+    parsedLink = new URL(linkUrl);
+  } catch {
+    throw new Error("Enter a valid HTTPS offer link.");
+  }
+  if (parsedLink.protocol !== "https:" || parsedLink.username || parsedLink.password) {
+    throw new Error("Offer links must use HTTPS and cannot include embedded credentials.");
+  }
+
+  return { title, description, linkUrl: parsedLink.toString(), buttonLabel: buttonLabel || "View offer", updatedAt: new Date().toISOString() };
+}
 
 function isPairingBlocked(address) {
   const record = failedPairings.get(address);
@@ -82,6 +111,12 @@ app.get("/api/health", (req, res) => {
     status: "running",
     timestamp: new Date().toISOString(),
   });
+});
+
+// Offer content is public marketing information; private device data remains
+// available only through an authenticated dashboard socket.
+app.get("/api/offer", (req, res) => {
+  res.set("Cache-Control", "no-store").json(currentOffer);
 });
 
 // In production the dashboard, REST health endpoint and sockets share the
@@ -143,10 +178,23 @@ io.on("connection", (socket) => {
   if (socket.data.role === "dashboard") {
     socket.join("dashboards");
     socket.emit("device:list", publicDeviceList());
+    socket.emit("offer:current", currentOffer);
+    socket.on("offer:update", (payload, callback) => {
+      try {
+        currentOffer = normalizeOffer(payload);
+        io.to("devices").emit("offer:update", currentOffer);
+        socket.emit("offer:current", currentOffer);
+        callback?.({ ok: true, offer: currentOffer });
+      } catch (error) {
+        callback?.({ ok: false, error: error.message });
+      }
+    });
     return;
   }
 
   console.log("A device companion connected.");
+  socket.join("devices");
+  socket.emit("offer:current", currentOffer);
 
   socket.on("device:register", (payload, callback) => {
     if (!payload || typeof payload !== "object") return;

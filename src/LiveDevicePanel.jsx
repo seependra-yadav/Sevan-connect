@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { Wifi, WifiOff } from "lucide-react";
 import { SERVER_URL } from "./lib/server";
@@ -9,6 +9,9 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [connectionCode, setConnectionCode] = useState("");
+  const [offer, setOffer] = useState({ title: "", description: "", linkUrl: "", buttonLabel: "View offer" });
+  const [offerStatus, setOfferStatus] = useState("");
+  const socketRef = useRef(null);
 
   useEffect(() => {
     if (!attempt || !connectionCode) return undefined;
@@ -19,6 +22,7 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
       reconnection: true,
       reconnectionAttempts: Infinity,
     });
+    socketRef.current = socket;
 
     socket.on("connect", () => {
       setConnected(true);
@@ -45,9 +49,34 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
         lastActive: device.lastSeen,
       })));
     });
+    socket.on("offer:current", (serverOffer) => {
+      if (!serverOffer?.updatedAt) {
+        setOffer({ title: "", description: "", linkUrl: "", buttonLabel: "View offer" });
+        return;
+      }
+      setOffer({
+        title: serverOffer.title,
+        description: serverOffer.description,
+        linkUrl: serverOffer.linkUrl,
+        buttonLabel: serverOffer.buttonLabel,
+      });
+      setOfferStatus("Current offer loaded.");
+    });
+    socket.on("offer:update", (serverOffer) => {
+      setOffer({
+        title: serverOffer.title,
+        description: serverOffer.description,
+        linkUrl: serverOffer.linkUrl,
+        buttonLabel: serverOffer.buttonLabel,
+      });
+      setOfferStatus("Offer updated from the server.");
+    });
 
     socket.connect();
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+      if (socketRef.current === socket) socketRef.current = null;
+    };
   }, [attempt, connectionCode, onAuthChange, onDevicesChange]);
 
   function connectDashboard(event) {
@@ -68,6 +97,19 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
     setAttempt(0);
     onAuthChange(false);
     onDevicesChange([]);
+  }
+
+  function publishOffer(event) {
+    event.preventDefault();
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      setOfferStatus("Dashboard is disconnected. Reconnect before publishing.");
+      return;
+    }
+    setOfferStatus("Publishing offer…");
+    socket.emit("offer:update", offer, (result) => {
+      setOfferStatus(result?.ok ? "Offer published to connected phones." : result?.error || "Could not publish offer.");
+    });
   }
 
   return (
@@ -99,6 +141,29 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
 
       {error && <p role="alert" className="connection-error">{error}</p>}
       {connected && <p className="connection-hint">Open the companion app on each phone and approve sharing there. The admin code is only for this dashboard.</p>}
+      {connected && (
+        <form className="offer-admin-form" onSubmit={publishOffer}>
+          <h3>Offer shown in phone app</h3>
+          <label>
+            Offer title
+            <input maxLength={100} value={offer.title} onChange={(event) => setOffer({ ...offer, title: event.target.value })} required />
+          </label>
+          <label>
+            Offer details
+            <textarea maxLength={500} rows={3} value={offer.description} onChange={(event) => setOffer({ ...offer, description: event.target.value })} required />
+          </label>
+          <label>
+            HTTPS destination link
+            <input type="url" pattern="https://.*" value={offer.linkUrl} onChange={(event) => setOffer({ ...offer, linkUrl: event.target.value })} placeholder="https://example.com/offer" required />
+          </label>
+          <label>
+            Button label
+            <input maxLength={40} value={offer.buttonLabel} onChange={(event) => setOffer({ ...offer, buttonLabel: event.target.value })} required />
+          </label>
+          <button className="primary-button" type="submit">Publish offer to phones</button>
+          {offerStatus && <p role="status" className="connection-hint">{offerStatus}</p>}
+        </form>
+      )}
     </section>
   );
 }
