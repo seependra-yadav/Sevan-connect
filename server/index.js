@@ -200,6 +200,22 @@ io.on("connection", (socket) => {
     callback?.({ ok: true });
   });
 
+  socket.on("device:unregister", (callback) => {
+    const deviceId = socket.data.deviceId;
+    if (!deviceId) {
+      callback?.({ ok: true });
+      return;
+    }
+
+    const device = devices.get(deviceId);
+    if (device?.socketId === socket.id) {
+      devices.delete(deviceId);
+      broadcastDevices();
+    }
+    delete socket.data.deviceId;
+    callback?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     const deviceId = socket.data.deviceId;
     if (!deviceId) return;

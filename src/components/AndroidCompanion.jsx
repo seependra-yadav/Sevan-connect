@@ -163,6 +163,7 @@ export default function AndroidCompanion() {
       setRememberConsent(false);
       localStorage.removeItem(CONSENT_KEY);
       window.clearInterval(updateTimerRef.current);
+      socketRef.current?.emit("device:unregister");
       socketRef.current?.disconnect();
       socketRef.current = null;
       setStatus("Sharing stopped");
