@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sevan Connect</string>
+    <string name="title_activity_main">Sevan Connect</string>
+    <string name="package_name">com.sevan.connect</string>
+    <string name="custom_url_scheme">com.sevan.connect</string>
+</resources>
