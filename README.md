@@ -18,7 +18,7 @@ If you created a Render service manually instead of using the Blueprint, set its
 
 For a manually created service, add a private `PAIRING_CODE` environment variable in Render. Generate a long random value and keep it private. The Blueprint generates this variable automatically.
 
-There is no separate admin username/password login. The generated `PAIRING_CODE` protects the dashboard's device list and must never be put in the APK. The companion sends the basic details listed above only after the phone user approves sharing. Anyone who knows the admin code can view connected device details, so rotate it in Render if it is exposed.
+There is no separate admin username/password login. The generated `PAIRING_CODE` is the single admin credential: the dashboard shows a locked screen until the server verifies it, and the server sends the private device list only to a verified dashboard socket. The credential is never put in the APK. Keep it private, use **Lock dashboard** when finished, and rotate it in Render immediately if anyone else may have seen it. Anyone with that credential can access the device list.
 
 The Blueprint creates a free Render web service. Free services can sleep after inactivity and use ephemeral storage. Device presence is held in memory and is rebuilt when the phone reconnects after a server restart or deploy. For always-on availability or durable history, choose a paid always-on service and add a database before relying on it.
 
@@ -55,6 +55,6 @@ On Windows, use `gradlew.bat assembleDebug`. The APK is written to `android/app/
 
 - Render generates a private pairing code. Treat it as a credential; rotate it if exposed.
 - Pairing attempts are throttled. Dashboard/API/socket traffic shares the HTTPS origin in production, and CORS is restricted to the deployed origin and local development origins.
-- The phone user must approve sending the listed device details. Remembering consent is optional and can be revoked by unchecking the sharing consent in the companion.
+- Installing the APK alone does not connect a phone or send data. The owner must open the app and approve sharing; the app must be open or allowed to run for live updates. Remembering consent is optional and can be revoked by unchecking the sharing consent in the companion.
 - Online presence is in memory and disappears on server restart until clients reconnect. The companion must be open or allowed to run for live updates; Android may pause background apps.
 - Files/photos, contacts, SMS/call history, notification forwarding, and live screen streaming are not implemented. They require separate Android APIs, user approvals, and additional security work. Nothing is collected merely by installing the app.

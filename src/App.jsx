@@ -21,6 +21,7 @@ function App() {
   const [devices, setDevices] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDevice, setSelectedDevice] = useState(null);
+  const [adminConnected, setAdminConnected] = useState(false);
 
   const filteredDevices = devices.filter((device) =>
     [
@@ -67,22 +68,31 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar
+      {adminConnected && <Sidebar
         activePage={activePage === "device-details" ? "devices" : activePage}
         onNavigate={navigate}
-      />
+      />}
 
       <main className="main-content">
-        <Header
+        {adminConnected && <Header
           activePage={pageTitle}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-        />
+        />}
 
         <div className="connection-content">
-          <LiveDevicePanel onDevicesChange={setDevices} />
+          <LiveDevicePanel onDevicesChange={setDevices} onAuthChange={setAdminConnected} />
         </div>
 
+        {!adminConnected && (
+          <section className="page-content admin-lock-notice" role="status">
+            <h2>Private dashboard</h2>
+            <p>Enter your private admin access code above. Connected device details are shown only after the server verifies it.</p>
+            <p>Keep this code private. It is never included in the Android APK.</p>
+          </section>
+        )}
+
+        <div style={{ display: adminConnected ? "contents" : "none" }}>
         {activePage === "dashboard" && (
           <div className="dashboard-content">
             <BackendStatus />
@@ -347,6 +357,7 @@ function App() {
             </p>
           </section>
         )}
+        </div>
       </main>
     </div>
   );

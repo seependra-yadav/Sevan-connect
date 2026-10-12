@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 import { Wifi, WifiOff } from "lucide-react";
 import { SERVER_URL } from "./lib/server";
 
-export default function LiveDevicePanel({ onDevicesChange }) {
+export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
   const [pairingCode, setPairingCode] = useState("");
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
@@ -23,12 +23,19 @@ export default function LiveDevicePanel({ onDevicesChange }) {
     socket.on("connect", () => {
       setConnected(true);
       setError("");
+      onAuthChange(true);
     });
     socket.on("connect_error", (connectionError) => {
       setConnected(false);
+      onAuthChange(false);
+      onDevicesChange([]);
       setError(connectionError.message || "Could not connect to the server.");
     });
-    socket.on("disconnect", () => setConnected(false));
+    socket.on("disconnect", () => {
+      setConnected(false);
+      onAuthChange(false);
+      onDevicesChange([]);
+    });
     socket.on("device:list", (serverDevices) => {
       onDevicesChange(serverDevices.map((device) => ({
         ...device,
@@ -41,7 +48,7 @@ export default function LiveDevicePanel({ onDevicesChange }) {
 
     socket.connect();
     return () => socket.disconnect();
-  }, [attempt, connectionCode, onDevicesChange]);
+  }, [attempt, connectionCode, onAuthChange, onDevicesChange]);
 
   function connectDashboard(event) {
     event.preventDefault();
@@ -52,6 +59,15 @@ export default function LiveDevicePanel({ onDevicesChange }) {
     }
     setConnectionCode(pairingCode.trim());
     setAttempt((value) => value + 1);
+  }
+
+  function lockDashboard() {
+    setConnected(false);
+    setConnectionCode("");
+    setPairingCode("");
+    setAttempt(0);
+    onAuthChange(false);
+    onDevicesChange([]);
   }
 
   return (
@@ -72,12 +88,13 @@ export default function LiveDevicePanel({ onDevicesChange }) {
           type="password"
           value={pairingCode}
           onChange={(event) => setPairingCode(event.target.value)}
-          placeholder="Dashboard admin code"
-          aria-label="Dashboard admin code"
+          placeholder="Private admin access code"
+          aria-label="Private admin access code"
           autoComplete="off"
           required
         />
         <button className="primary-button" type="submit">Connect dashboard</button>
+        {connected && <button className="secondary-button" type="button" onClick={lockDashboard}>Lock dashboard</button>}
       </form>
 
       {error && <p role="alert" className="connection-error">{error}</p>}
