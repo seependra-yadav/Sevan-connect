@@ -28,6 +28,14 @@ android {
     }
 }
 
+// Use a dedicated artifact name so Windows file previews/sync clients holding
+// an older app-debug.apk cannot block a fresh build.
+android.applicationVariants.all { variant ->
+    variant.outputs.all { output ->
+        output.outputFileName = "Sevan-Connect-${variant.name}.apk"
+    }
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'

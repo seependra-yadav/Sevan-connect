@@ -119,6 +119,18 @@ app.get("/api/offer", (req, res) => {
   res.set("Cache-Control", "no-store").json(currentOffer);
 });
 
+app.get("/downloads/Sevan-Connect.apk", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  res.download(
+    path.join(DIST_DIR, "downloads", "Sevan-Connect.apk"),
+    "Sevan-Connect.apk",
+    { headers: { "Content-Type": "application/vnd.android.package-archive" } },
+    (error) => {
+      if (error && !res.headersSent) next(error);
+    }
+  );
+});
+
 // In production the dashboard, REST health endpoint and sockets share the
 // same public HTTPS origin. Vite continues serving the dashboard in dev.
 app.use(express.static(DIST_DIR, { index: false, maxAge: "1h" }));

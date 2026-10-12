@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sevan-connect-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/Sevan-Connect-debug.apk
           if-no-files-found: error
 
       - name: Publish APK download release
@@ -58,7 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="apk-$(date -u +'%Y%m%d-%H%M%S')"
-          gh release create "$tag" android/app/build/outputs/apk/debug/app-debug.apk \
+          gh release create "$tag" android/app/build/outputs/apk/debug/Sevan-Connect-debug.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "Sevan Connect Android APK $tag" \
             --notes "Consent-based Android companion APK. Install it, review the sharing notice, then approve sharing on the phone."
