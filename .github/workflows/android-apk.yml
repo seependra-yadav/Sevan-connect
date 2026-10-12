@@ -37,7 +37,6 @@ jobs:
       - name: Install dependencies and build web assets
         run: |
           npm ci
-          npm ci --prefix server
           npm run build
           npx cap sync android
         env:
