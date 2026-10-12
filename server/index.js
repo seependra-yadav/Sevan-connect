@@ -116,23 +116,25 @@ function broadcastDevices() {
 
 io.use((socket, next) => {
   const remoteAddress = socket.handshake.address || "unknown";
-  if (isPairingBlocked(remoteAddress)) {
-    return next(new Error("Too many failed pairing attempts. Try again in 10 minutes."));
-  }
-
   const { pairingCode, role } = socket.handshake.auth || {};
 
-  if (typeof pairingCode !== "string" || pairingCode !== PAIRING_CODE) {
-    recordPairingFailure(remoteAddress);
-    return next(new Error("Invalid pairing code"));
-  }
-
   if (!["dashboard", "device"].includes(role)) {
-    recordPairingFailure(remoteAddress);
     return next(new Error("Invalid client role"));
   }
 
-  failedPairings.delete(remoteAddress);
+  // Only the dashboard receives device lists, and it must prove the admin
+  // secret. Phone companions register only their own consented details.
+  if (role === "dashboard") {
+    if (isPairingBlocked(remoteAddress)) {
+      return next(new Error("Too many failed pairing attempts. Try again in 10 minutes."));
+    }
+    if (typeof pairingCode !== "string" || pairingCode !== PAIRING_CODE) {
+      recordPairingFailure(remoteAddress);
+      return next(new Error("Invalid pairing code"));
+    }
+    failedPairings.delete(remoteAddress);
+  }
+
   socket.data.role = role;
   next();
 });
@@ -144,10 +146,14 @@ io.on("connection", (socket) => {
     return;
   }
 
-  console.log("An authenticated device client connected.");
+  console.log("A device companion connected.");
 
   socket.on("device:register", (payload, callback) => {
     if (!payload || typeof payload !== "object") return;
+    if (payload.userConsented !== true) {
+      callback?.({ ok: false, error: "Device owner consent is required." });
+      return;
+    }
 
     const deviceId = String(payload.deviceId || "").slice(0, 100);
     const name = String(payload.name || "Android device").slice(0, 80);

@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -52,3 +52,13 @@ jobs:
           name: sevan-connect-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish APK download release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apk-$(date -u +'%Y%m%d-%H%M%S')"
+          gh release create "$tag" android/app/build/outputs/apk/debug/app-debug.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Sevan Connect Android APK $tag" \
+            --notes "Consent-based Android companion APK. Install it, review the sharing notice, then approve sharing on the phone."

@@ -72,8 +72,8 @@ export default function LiveDevicePanel({ onDevicesChange }) {
           type="password"
           value={pairingCode}
           onChange={(event) => setPairingCode(event.target.value)}
-          placeholder="Server pairing code"
-          aria-label="Server pairing code"
+          placeholder="Dashboard admin code"
+          aria-label="Dashboard admin code"
           autoComplete="off"
           required
         />
@@ -81,7 +81,7 @@ export default function LiveDevicePanel({ onDevicesChange }) {
       </form>
 
       {error && <p role="alert" className="connection-error">{error}</p>}
-      {connected && <p className="connection-hint">Open the companion app on your phone and enter the same code.</p>}
+      {connected && <p className="connection-hint">Open the companion app on each phone and approve sharing there. The admin code is only for this dashboard.</p>}
     </section>
   );
 }

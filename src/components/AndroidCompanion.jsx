@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Device } from "@capacitor/device";
+import { Share } from "@capacitor/share";
 import { io } from "socket.io-client";
 
-const PAIRING_KEY = "sevan.pairingCode";
 const SERVER_KEY = "sevan.serverUrl";
+const CONSENT_KEY = "sevan.rememberSharingConsent";
+const DASHBOARD_URL = "https://sevan-connect.onrender.com";
+const APK_URL = "https://github.com/seependra-yadav/Sevan-connect/releases/latest/download/app-debug.apk";
 
 function isPrivateNetworkHost(host) {
   if (host === "localhost" || host.endsWith(".local")) return true;
@@ -17,21 +20,19 @@ function isPrivateNetworkHost(host) {
 
 export default function AndroidCompanion() {
   const [serverUrl, setServerUrl] = useState(() =>
-    import.meta.env.VITE_SERVER_URL || localStorage.getItem(SERVER_KEY) || ""
-  );
-  const [pairingCode, setPairingCode] = useState(() =>
-    localStorage.getItem(PAIRING_KEY) || ""
+    import.meta.env.VITE_SERVER_URL || localStorage.getItem(SERVER_KEY) || DASHBOARD_URL
   );
   const [sharingConsent, setSharingConsent] = useState(() =>
-    Boolean(localStorage.getItem(PAIRING_KEY))
+    localStorage.getItem(CONSENT_KEY) === "true"
   );
-  const [rememberDevice, setRememberDevice] = useState(() =>
-    Boolean(localStorage.getItem(PAIRING_KEY))
+  const [rememberConsent, setRememberConsent] = useState(() =>
+    localStorage.getItem(CONSENT_KEY) === "true"
   );
   const [deviceInfo, setDeviceInfo] = useState(null);
   const [batteryInfo, setBatteryInfo] = useState(null);
-  const [status, setStatus] = useState("Preparing device details…");
+  const [status, setStatus] = useState("Reading basic device details…");
   const [error, setError] = useState("");
+  const [shareError, setShareError] = useState("");
   const socketRef = useRef(null);
   const updateTimerRef = useRef(null);
   const connectRef = useRef(null);
@@ -41,6 +42,7 @@ export default function AndroidCompanion() {
       const battery = await Device.getBatteryInfo();
       setBatteryInfo(battery);
       socket.emit("device:register", {
+        userConsented: true,
         deviceId: id.identifier,
         name: info.name || "My Android Phone",
         model: info.model || "Android device",
@@ -52,10 +54,10 @@ export default function AndroidCompanion() {
         isCharging: battery.isCharging ?? null,
       }, (result) => {
         if (result?.ok) {
-          setStatus("Connected to your dashboard");
+          setStatus("Connected — sharing approved details");
           setError("");
         } else {
-          setStatus("Pairing failed");
+          setStatus("Could not share device details");
           setError(result?.error || "Device registration failed.");
         }
       });
@@ -65,7 +67,7 @@ export default function AndroidCompanion() {
     }
   }
 
-  async function connectToServer(rawServerUrl, rawPairingCode, remember) {
+  async function connectToServer(rawServerUrl, remember) {
     const normalizedServerUrl = rawServerUrl.trim().replace(/\/+$/, "");
     let parsedUrl;
     try {
@@ -74,29 +76,28 @@ export default function AndroidCompanion() {
         throw new Error("Use an HTTP or HTTPS server URL.");
       }
       if (parsedUrl.protocol === "http:" && !isPrivateNetworkHost(parsedUrl.hostname)) {
-        throw new Error("HTTP is allowed only for a private same-Wi-Fi server. Use HTTPS for public servers.");
+        throw new Error("Public connections require HTTPS.");
       }
-      if (!rawPairingCode.trim()) throw new Error("Enter your server pairing code.");
     } catch (validationError) {
-      setStatus("Pairing required");
+      setStatus("Connection needs attention");
       setError(validationError.message || "Enter a valid server URL.");
       return;
     }
 
     setError("");
-    setStatus("Connecting…");
+    setStatus("Connecting securely…");
     socketRef.current?.disconnect();
 
     try {
       localStorage.setItem(SERVER_KEY, normalizedServerUrl);
-      if (remember && sharingConsent) localStorage.setItem(PAIRING_KEY, rawPairingCode.trim());
-      else localStorage.removeItem(PAIRING_KEY);
+      if (remember && sharingConsent) localStorage.setItem(CONSENT_KEY, "true");
+      else localStorage.removeItem(CONSENT_KEY);
 
       const [info, id] = await Promise.all([Device.getInfo(), Device.getId()]);
       setDeviceInfo(info);
       const socket = io(normalizedServerUrl, {
         autoConnect: false,
-        auth: { pairingCode: rawPairingCode.trim(), role: "device" },
+        auth: { role: "device" },
         reconnection: true,
       });
       socketRef.current = socket;
@@ -115,7 +116,7 @@ export default function AndroidCompanion() {
       });
       socket.on("disconnect", () => {
         window.clearInterval(updateTimerRef.current);
-        setStatus("Disconnected; reconnecting…");
+        setStatus("Disconnected — reconnecting…");
       });
       socket.connect();
     } catch (connectionError) {
@@ -135,18 +136,17 @@ export default function AndroidCompanion() {
         if (!active) return;
         setDeviceInfo(info);
         setBatteryInfo(battery);
-        setStatus("Ready to pair");
+        setStatus("Ready — not sharing");
       })
       .catch((deviceError) => {
         if (!active) return;
-        setStatus("Device details unavailable");
+        setStatus("Basic device details unavailable");
         setError(deviceError.message || "Could not read device details.");
       });
 
-    const savedServerUrl = localStorage.getItem(SERVER_KEY);
-    const savedPairingCode = localStorage.getItem(PAIRING_KEY);
-    if (savedServerUrl && savedPairingCode) {
-      void connectRef.current?.(savedServerUrl, savedPairingCode, true);
+    const rememberedUrl = localStorage.getItem(SERVER_KEY);
+    if (localStorage.getItem(CONSENT_KEY) === "true" && rememberedUrl) {
+      void connectRef.current?.(rememberedUrl, true);
     }
 
     return () => {
@@ -156,30 +156,46 @@ export default function AndroidCompanion() {
     };
   }, []);
 
-  function connectDevice(event) {
-    event.preventDefault();
-    if (!sharingConsent) {
-      setError("Approve sharing the listed device details before pairing.");
-      return;
-    }
-    void connectToServer(serverUrl, pairingCode, rememberDevice);
-  }
-
   function updateSharingConsent(event) {
     const allowed = event.target.checked;
     setSharingConsent(allowed);
     if (!allowed) {
-      localStorage.removeItem(PAIRING_KEY);
+      setRememberConsent(false);
+      localStorage.removeItem(CONSENT_KEY);
       window.clearInterval(updateTimerRef.current);
       socketRef.current?.disconnect();
-      setStatus("Sharing paused");
+      socketRef.current = null;
+      setStatus("Sharing stopped");
+    }
+  }
+
+  function connectDevice(event) {
+    event.preventDefault();
+    if (!sharingConsent) {
+      setError("Approve the device-sharing notice before connecting.");
+      return;
+    }
+    void connectToServer(serverUrl, rememberConsent);
+  }
+
+  async function shareApk() {
+    setShareError("");
+    try {
+      await Share.share({
+        title: "Sevan Connect for Android",
+        text: "Install Sevan Connect to share device details with the connected dashboard.",
+        url: APK_URL,
+        dialogTitle: "Share the Sevan Connect APK",
+      });
+    } catch (shareFailure) {
+      setShareError(shareFailure.message || "Could not open the Android share menu.");
     }
   }
 
   return (
-    <main style={{ maxWidth: 520, margin: "32px auto", padding: 24, fontFamily: "Arial, sans-serif" }}>
+    <main style={{ maxWidth: 560, margin: "32px auto", padding: 24, fontFamily: "Arial, sans-serif" }}>
       <h1>Sevan Connect</h1>
-      <p>Device details are read on this phone. Pair to share them with your dashboard.</p>
+      <p>This app stays disconnected until the phone owner approves sharing.</p>
 
       <section aria-live="polite" style={{ padding: 16, margin: "20px 0", border: "1px solid #e7eaf1", borderRadius: 12 }}>
         <h2 style={{ marginTop: 0 }}>This phone</h2>
@@ -195,49 +211,47 @@ export default function AndroidCompanion() {
       </section>
 
       <form onSubmit={connectDevice}>
-        <label htmlFor="server-url">Secure server address</label>
+        <label htmlFor="server-url">Dashboard and data recipient</label>
         <input
           id="server-url"
           type="url"
           value={serverUrl}
           onChange={(event) => setServerUrl(event.target.value)}
-          placeholder="http://192.168.1.10:4000 (same Wi-Fi)"
           required
           style={{ display: "block", width: "100%", padding: 12, margin: "8px 0 16px", boxSizing: "border-box" }}
         />
 
-        <label htmlFor="pairing-code">Pairing code</label>
-        <input
-          id="pairing-code"
-          type="password"
-          value={pairingCode}
-          onChange={(event) => setPairingCode(event.target.value)}
-          placeholder="Enter your server pairing code"
-          autoComplete="off"
-          required
-          style={{ display: "block", width: "100%", padding: 12, margin: "8px 0 12px", boxSizing: "border-box" }}
-        />
-
         <label style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 0 14px", fontSize: 14 }}>
           <input type="checkbox" checked={sharingConsent} onChange={updateSharingConsent} />
-          I allow this phone to send the device name, model, Android version, and battery status to the server above while connected.
+          I agree to send this phone’s name, model, Android version, and battery/charging status to the dashboard above while connected. The dashboard administrator can view these details.
         </label>
 
         <label style={{ display: "flex", alignItems: "flex-start", gap: 8, margin: "0 0 16px", fontSize: 14 }}>
           <input
             type="checkbox"
-            checked={rememberDevice}
-            onChange={(event) => setRememberDevice(event.target.checked)}
+            checked={rememberConsent}
+            onChange={(event) => setRememberConsent(event.target.checked)}
           />
-          Remember this pairing on this phone so it reconnects automatically next time.
+          Remember my approval and reconnect when I open this app again.
         </label>
 
-        <button type="submit" disabled={!sharingConsent} style={{ padding: "12px 18px", cursor: sharingConsent ? "pointer" : "not-allowed" }}>Pair this phone</button>
+        <button type="submit" disabled={!sharingConsent} style={{ padding: "12px 18px", cursor: sharingConsent ? "pointer" : "not-allowed" }}>
+          Connect and share approved details
+        </button>
       </form>
 
       {error && <p role="alert" style={{ color: "#b42318" }}>{error}</p>}
-      <p style={{ fontSize: 13, color: "#666" }}>
-        Phone details above need no extra Android permission. Files, contacts, notifications, messages, call history, and screen sharing require separate consent before those features can be added. Use HTTPS when pairing over a network.
+
+      <section style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid #e7eaf1" }}>
+        <h2>Sevan Connect links</h2>
+        <p><a href={DASHBOARD_URL} target="_blank" rel="noreferrer">Open the dashboard</a></p>
+        <p><a href={APK_URL}>Download the latest APK</a></p>
+        <button type="button" onClick={() => void shareApk()} style={{ padding: "10px 14px" }}>Share APK link…</button>
+        {shareError && <p role="alert" style={{ color: "#b42318" }}>{shareError}</p>}
+      </section>
+
+      <p style={{ fontSize: 13, color: "#666", marginTop: 20 }}>
+        Only the basic details listed above are currently shared. Files, contacts, notifications, messages, call history, and screen sharing are not implemented. Any future access must be requested separately and approved by the phone owner.
       </p>
     </main>
   );
