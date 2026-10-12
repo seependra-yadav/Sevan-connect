@@ -4,6 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const http = require("http");
 const os = require("node:os");
+const path = require("node:path");
 const cors = require("cors");
 const helmet = require("helmet");
 const { Server } = require("socket.io");
@@ -16,24 +17,64 @@ const DASHBOARD_ORIGINS = (process.env.DASHBOARD_ORIGINS || "http://localhost:51
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const allowedOrigins = new Set(DASHBOARD_ORIGINS);
+if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+  allowedOrigins.add(`https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
+}
 
 if (!PAIRING_CODE || PAIRING_CODE.length < 6) {
   throw new Error("Configure a private PAIRING_CODE in server/.env");
 }
 
-app.use(helmet());
-app.use(cors({ origin: DASHBOARD_ORIGINS }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      connectSrc: ["'self'", "ws:", "wss:"],
+    },
+  },
+}));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed"));
+  },
+}));
 app.use(express.json());
 
 const io = new Server(server, {
+  maxHttpBufferSize: 100_000,
   cors: {
-    origin: DASHBOARD_ORIGINS,
-  methods: ["GET", "POST"],
-},
+    origin: [...allowedOrigins],
+    methods: ["GET", "POST"],
+  },
 });
 
-// Development storage only. Devices reset when the server restarts.
+// Device presence is in memory and is restored as clients reconnect.
 const devices = new Map();
+const failedPairings = new Map();
+const DIST_DIR = path.resolve(__dirname, "../dist");
+
+function isPairingBlocked(address) {
+  const record = failedPairings.get(address);
+  if (!record) return false;
+  if (Date.now() >= record.blockedUntil && record.blockedUntil) {
+    failedPairings.delete(address);
+    return false;
+  }
+  return Boolean(record.blockedUntil);
+}
+
+function recordPairingFailure(address) {
+  const now = Date.now();
+  const current = failedPairings.get(address);
+  const withinWindow = current && now - current.windowStartedAt < 10 * 60_000;
+  const failures = (withinWindow ? current.failures : 0) + 1;
+  failedPairings.set(address, {
+    failures,
+    windowStartedAt: withinWindow ? current.windowStartedAt : now,
+    blockedUntil: failures >= 8 ? now + 10 * 60_000 : 0,
+  });
+}
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -41,6 +82,24 @@ app.get("/api/health", (req, res) => {
     status: "running",
     timestamp: new Date().toISOString(),
   });
+});
+
+// In production the dashboard, REST health endpoint and sockets share the
+// same public HTTPS origin. Vite continues serving the dashboard in dev.
+app.use(express.static(DIST_DIR, { index: false, maxAge: "1h" }));
+app.get(/^(?!\/api\/|\/socket\.io\/).*/, (req, res, next) => {
+  res.sendFile(path.join(DIST_DIR, "index.html"), (error) => {
+    if (error) next(error);
+  });
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  if (error.message === "Origin is not allowed") {
+    return res.status(403).json({ error: "Origin is not allowed" });
+  }
+  console.error("Request failed:", error.message);
+  return res.status(500).json({ error: "Internal server error" });
 });
 
 function publicDeviceList() {
@@ -56,16 +115,24 @@ function broadcastDevices() {
 }
 
 io.use((socket, next) => {
+  const remoteAddress = socket.handshake.address || "unknown";
+  if (isPairingBlocked(remoteAddress)) {
+    return next(new Error("Too many failed pairing attempts. Try again in 10 minutes."));
+  }
+
   const { pairingCode, role } = socket.handshake.auth || {};
 
-  if (pairingCode !== PAIRING_CODE) {
+  if (typeof pairingCode !== "string" || pairingCode !== PAIRING_CODE) {
+    recordPairingFailure(remoteAddress);
     return next(new Error("Invalid pairing code"));
   }
 
   if (!["dashboard", "device"].includes(role)) {
+    recordPairingFailure(remoteAddress);
     return next(new Error("Invalid client role"));
   }
 
+  failedPairings.delete(remoteAddress);
   socket.data.role = role;
   next();
 });

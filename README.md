@@ -1,39 +1,54 @@
 # Sevan Connect
 
+Sevan Connect pairs an Android companion with a web dashboard through an authenticated Socket.IO connection. The current working integration shares the phone name, model, Android version, battery and charging state. The phone must be opened and the user must approve sharing and pairing.
+
+## Deploy publicly (Render)
+
+The production dashboard, API and Socket.IO endpoint run from one Render web service. Render supplies the public HTTPS URL, so a phone can connect from mobile data or another Wi-Fi network without being on the PC's LAN. TLS terminates at Render; the Android app rejects public HTTP URLs.
+
+1. Sign in to Render and choose **New → Blueprint**.
+2. Connect `seependra-yadav/Sevan-connect`, branch `main`. The repository root is this `dashboard` folder and contains `render.yaml`.
+3. Create the Blueprint and wait for the `sevan-connect` service deploy to finish.
+4. Open the service URL shown by Render. `/api/health` should return JSON with `"status":"running"`; the root URL is the dashboard.
+5. In the Render service's **Environment** page, copy the generated `PAIRING_CODE`. Do not publish it. Use it to connect the dashboard and phone.
+6. In GitHub, open **Actions → Build Android companion APK → Run workflow**. Enter the Render HTTPS service URL (for example `https://sevan-connect.onrender.com`). Download `sevan-connect-debug-apk` from the completed run's artifacts.
+7. Install the APK, open it, approve the sharing checkbox, enter the same pairing code, and select **Remember this pairing** if desired. The phone can use any network with internet access. Open the deployed dashboard and enter the pairing code; its device list updates while the companion is connected.
+
+The Blueprint creates a free Render web service. Free services can sleep after inactivity and use ephemeral storage. Device presence is held in memory and is rebuilt when the phone reconnects after a server restart or deploy. For always-on availability or durable history, choose a paid always-on service and add a database before relying on it.
+
 ## Run locally
 
-1. In `dashboard/server`, create `.env` from `.env.example` and set a private `PAIRING_CODE`.
-2. Start the backend in one terminal: `npm run dev` from `dashboard/server`.
-3. Start the dashboard in another terminal: `npm run dev` from `dashboard`.
-4. Open the Vite URL (normally `http://localhost:5173`) and enter the same pairing code in **Connect your Android phone**.
-5. Install and open the companion APK while the phone and PC are on the same trusted Wi-Fi. Copy a `Same-Wi-Fi phone address candidate` from the backend terminal into the app (for example `http://192.168.1.10:4000`), enter the same pairing code, approve the sharing checkbox, then press **Pair this phone**.
+1. In `server`, copy `.env.example` to `.env` and set a private `PAIRING_CODE` (at least 6 characters for local development).
+2. In one terminal, run `npm run dev` from `server` (port 4000).
+3. In another terminal, run `npm run dev` from this folder (Vite normally uses port 5173).
+4. Open the Vite URL and enter the pairing code in **Connect your Android phone**.
+5. Install the debug APK on a phone connected to the same trusted Wi-Fi, enter the backend LAN URL and pairing code, approve sharing, and pair.
 
-The phone screen reads and displays the device name, model, Android version, and battery as it opens. These basic details need no runtime Android permission. The dashboard list is populated by authenticated companion connections; it no longer shows sample devices. The phone asks the user to approve sharing those details before pairing and refreshes battery/charging state every 30 seconds while connected. Remembered pairing is optional and requires the separate checkbox. The debug APK permits unencrypted HTTP only for same-Wi-Fi development; use HTTPS before exposing the app to the internet.
+For a local APK, build the dashboard with `VITE_SERVER_URL` set to the PC's LAN URL before syncing/building Android. Local debug builds permit cleartext HTTP for a private LAN; release builds reject cleartext traffic.
 
-## Connect across different networks
+## Build an APK locally
 
-`localhost` and private Wi-Fi addresses are reachable only from the same machine/network. To pair over different networks, deploy `server` on a public host behind HTTPS/WSS, set `DASHBOARD_ORIGINS` to the dashboard's exact origin(s), and set `VITE_SERVER_URL` in `dashboard/.env` to the public backend URL before building the web dashboard and APK. The Android app remembers the server URL after a successful submission. Do not expose the pairing code in a public repository or use unencrypted HTTP for remote connections.
-
-This repository does not contain a deployed public relay/server or TLS domain. The local backend alone cannot make phones on unrelated networks reachable.
-
-## Build a debug APK
-
-From `dashboard` run:
+From this folder:
 
 ```sh
+npm ci
+npm ci --prefix server
 npm run build
 npx cap sync android
 ```
 
-Then, from `dashboard/android` on Windows, use Android Studio's bundled JDK 21:
+Build the debug APK from `android` with Java 21:
 
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat assembleDebug
+```sh
+./gradlew assembleDebug
 ```
 
-The APK is written to `dashboard/android/app/build/outputs/apk/debug/app-debug.apk`. A release APK requires a signing key and release configuration.
+On Windows, use `gradlew.bat assembleDebug`. The APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`. For a public install, set `VITE_SERVER_URL` to the deployed HTTPS URL before `npm run build`, then sync and build. The GitHub Actions workflow accepts that URL and uploads the resulting debug APK. A release APK needs a private signing key and release signing configuration.
 
-## Current scope and Android permissions
+## Security and scope
 
-The working phone integration covers pairing, online/offline status, and basic device/battery details. Files/photos, contacts, SMS/call history, notification forwarding, and live screen streaming still need Android permission and consent flows and are not implemented by the current backend. File access should use Android's system picker where possible. Android requires fresh user approval for each screen-capture session; SMS/call-log access is additionally restricted by Android and Google Play distribution rules. Nothing is collected merely by installing the app.
+- Render generates a private pairing code. Treat it as a credential; rotate it if exposed.
+- Pairing attempts are throttled. Dashboard/API/socket traffic shares the HTTPS origin in production, and CORS is restricted to the deployed origin and local development origins.
+- The user must approve sending the listed device details. Remembered pairing is optional and can be revoked by clearing the checkbox in the companion.
+- Online presence is in memory and disappears on server restart until clients reconnect. The companion must be open or allowed to run for live updates; Android may pause background apps.
+- Files/photos, contacts, SMS/call history, notification forwarding, and live screen streaming are not implemented. They require separate Android APIs, user approvals, and additional security work. Nothing is collected merely by installing the app.
