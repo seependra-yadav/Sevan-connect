@@ -16,6 +16,8 @@ The production dashboard, API and Socket.IO endpoint run from one Render web ser
 
 After the admin connects the dashboard, use **Offer shown in phone app** to set an offer title, message, HTTPS link, and button label, then select **Publish offer to phones**. The phone app shows only the current offer and its link; it does not show admin-dashboard controls or links. Offers are public content. The companion connects to load and receive offer updates, but sends device details only after the phone user separately approves sharing. Offers are currently held in server memory and reset when the service restarts or sleeps; connected phones receive the latest offer again after the admin republishes it.
 
+The offer screen stays hidden until the companion receives an offer response from the service. This version declares only Android's `INTERNET` permission for offers; unrelated permissions are not requested or required to view them.
+
 If you created a Render service manually instead of using the Blueprint, set its branch to `main`, leave **Root Directory** empty, set **Build Command** to `npm install && npm run build`, set **Start Command** to `npm start`, and set **Health Check Path** to `/api/health`. Root dependencies include both the Vite build tool and backend runtime packages, so this also works with Render's default `npm install && npm run build`. Do not use `npm run preview` as the production start command; it only serves the static UI and does not start the API or socket backend.
 
 For a manually created service, add a private `PAIRING_CODE` environment variable in Render. Generate a long random value and keep it private. The Blueprint generates this variable automatically.

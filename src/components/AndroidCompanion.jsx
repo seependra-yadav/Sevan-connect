@@ -29,6 +29,7 @@ export default function AndroidCompanion() {
     import.meta.env.VITE_SERVER_URL || localStorage.getItem(SERVER_KEY) || DASHBOARD_URL
   );
   const [offer, setOffer] = useState(EMPTY_OFFER);
+  const [offerLoaded, setOfferLoaded] = useState(false);
   const [serviceStatus, setServiceStatus] = useState("Loading the latest offer…");
   const [sharingConsent, setSharingConsent] = useState(() =>
     localStorage.getItem(CONSENT_KEY) === "true"
@@ -97,11 +98,18 @@ export default function AndroidCompanion() {
         }, 30000);
       }
     });
-    socket.on("offer:current", (nextOffer) => setOffer(nextOffer || EMPTY_OFFER));
-    socket.on("offer:update", (nextOffer) => setOffer(nextOffer || EMPTY_OFFER));
+    socket.on("offer:current", (nextOffer) => {
+      setOffer(nextOffer || EMPTY_OFFER);
+      setOfferLoaded(true);
+    });
+    socket.on("offer:update", (nextOffer) => {
+      setOffer(nextOffer || EMPTY_OFFER);
+      setOfferLoaded(true);
+    });
     socket.on("connect_error", (error) => setServiceStatus(error.message || "Could not connect for offers."));
     socket.on("disconnect", () => {
       window.clearInterval(updateTimerRef.current);
+      setOfferLoaded(false);
       setServiceStatus("Reconnecting to load the latest offer…");
     });
   }, [serverUrl]);
@@ -152,21 +160,28 @@ export default function AndroidCompanion() {
       <h1>Today's offer</h1>
       <p role="status" style={{ color: "#666" }}>{serviceStatus}</p>
 
-      <article style={{ marginTop: 20, padding: 22, border: "1px solid #e7eaf1", borderRadius: 16, background: "#fff" }}>
-        <h2 style={{ marginTop: 0 }}>{offer.title}</h2>
-        <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{offer.description}</p>
-        {offer.linkUrl && (
-          <a
-            href={offer.linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "inline-block", marginTop: 8, padding: "12px 18px", borderRadius: 8, background: "#2457d6", color: "white", textDecoration: "none" }}
-          >
-            {offer.buttonLabel || "View offer"}
-          </a>
-        )}
-        {offer.updatedAt && <p style={{ marginBottom: 0, color: "#777", fontSize: 12 }}>Updated {new Date(offer.updatedAt).toLocaleString()}</p>}
-      </article>
+      {offerLoaded ? (
+        <article style={{ marginTop: 20, padding: 22, border: "1px solid #e7eaf1", borderRadius: 16, background: "#fff" }}>
+          <h2 style={{ marginTop: 0 }}>{offer.title}</h2>
+          <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{offer.description}</p>
+          {offer.linkUrl && (
+            <a
+              href={offer.linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 8, padding: "12px 18px", borderRadius: 8, background: "#2457d6", color: "white", textDecoration: "none" }}
+            >
+              {offer.buttonLabel || "View offer"}
+            </a>
+          )}
+          {offer.updatedAt && <p style={{ marginBottom: 0, color: "#777", fontSize: 12 }}>Updated {new Date(offer.updatedAt).toLocaleString()}</p>}
+        </article>
+      ) : (
+        <section role="status" style={{ marginTop: 20, padding: 22, border: "1px solid #e7eaf1", borderRadius: 16, background: "#fff" }}>
+          <h2 style={{ marginTop: 0 }}>Offer not ready</h2>
+          <p>Connect to the offer service to load the current offer. This app currently needs Internet access for offers; Android grants that permission during installation.</p>
+        </section>
+      )}
 
       <details style={{ marginTop: 24, padding: 16, border: "1px solid #e7eaf1", borderRadius: 12 }}>
         <summary style={{ cursor: "pointer", fontWeight: 600 }}>Privacy and optional device sharing</summary>
