@@ -14,6 +14,10 @@ The production dashboard, API and Socket.IO endpoint run from one Render web ser
 6. In GitHub, open **Actions → Build Android companion APK → Run workflow**. Enter the Render HTTPS service URL (for example `https://sevan-connect.onrender.com`). Download `sevan-connect-debug-apk` from the completed run's artifacts.
 7. Install the APK, open it, approve the sharing checkbox, enter the same pairing code, and select **Remember this pairing** if desired. The phone can use any network with internet access. Open the deployed dashboard and enter the pairing code; its device list updates while the companion is connected.
 
+If you created a Render service manually instead of using the Blueprint, set its branch to `main`, leave **Root Directory** empty, set **Build Command** to `npm ci && npm --prefix server ci && npm run build`, set **Start Command** to `npm start`, and set **Health Check Path** to `/api/health`. Do not use `npm run preview` as the production start command; it only serves the static UI and does not start the API or socket backend.
+
+There is no separate admin username/password login. The generated `PAIRING_CODE` is the dashboard and phone pairing credential. Keep it private and enter it in the dashboard's **Connect your Android phone** form and the companion app. Anyone who knows that code can view connected device details, so rotate it in Render if it is exposed.
+
 The Blueprint creates a free Render web service. Free services can sleep after inactivity and use ephemeral storage. Device presence is held in memory and is rebuilt when the phone reconnects after a server restart or deploy. For always-on availability or durable history, choose a paid always-on service and add a database before relying on it.
 
 ## Run locally
