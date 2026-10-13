@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def releaseKeyPropertiesFile = rootProject.file('keystore.properties')
+def releaseKeyProperties = new Properties()
+if (releaseKeyPropertiesFile.exists()) {
+    releaseKeyProperties.load(new FileInputStream(releaseKeyPropertiesFile))
+}
+
 android {
     namespace = "com.sevan.connect"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,11 +22,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (releaseKeyPropertiesFile.exists()) {
+                storeFile rootProject.file(releaseKeyProperties['storeFile'])
+                storePassword releaseKeyProperties['storePassword']
+                keyAlias releaseKeyProperties['keyAlias']
+                keyPassword releaseKeyProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         debug {
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
+            signingConfig signingConfigs.release
             manifestPlaceholders = [usesCleartextTraffic: "false"]
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
