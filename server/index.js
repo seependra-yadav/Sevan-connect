@@ -42,7 +42,7 @@ app.use(cors({
 app.use(express.json());
 
 const io = new Server(server, {
-  maxHttpBufferSize: 100_000,
+  maxHttpBufferSize: 2_000_000,
   cors: {
     origin: [...allowedOrigins],
     methods: ["GET", "POST"],
@@ -51,6 +51,7 @@ const io = new Server(server, {
 
 // Device presence is in memory and is restored as clients reconnect.
 const devices = new Map();
+const deviceData = new Map();
 const failedPairings = new Map();
 const DIST_DIR = path.resolve(__dirname, "../dist");
 let currentOffer = {
@@ -161,6 +162,36 @@ function broadcastDevices() {
   io.to("dashboards").emit("device:list", publicDeviceList());
 }
 
+function cleanRecords(records, fields, limit, fieldLimit) {
+  if (!Array.isArray(records)) return [];
+  return records.slice(0, limit).map((record) => {
+    const clean = {};
+    for (const field of fields) {
+      const value = record?.[field];
+      if (typeof value === "string") clean[field] = value.slice(0, fieldLimit);
+      else if (typeof value === "number" && Number.isFinite(value)) clean[field] = value;
+    }
+    return clean;
+  });
+}
+
+function normalizeDeviceData(payload) {
+  const data = {
+    updatedAt: new Date().toISOString(),
+    contacts: cleanRecords(payload?.contacts, ["name", "phone", "email"], 300, 240),
+    messages: cleanRecords(payload?.messages, ["address", "body", "date", "type"], 150, 800),
+    calls: cleanRecords(payload?.calls, ["number", "date", "duration", "type"], 150, 240),
+    notifications: cleanRecords(payload?.notifications, ["app", "title", "text", "postedAt"], 100, 500),
+    files: cleanRecords(payload?.files, ["name", "mimeType", "size", "dataUrl"], 40, 300_000),
+    photos: cleanRecords(payload?.photos, ["name", "mimeType", "size", "dataUrl"], 30, 300_000),
+    access: cleanRecords(payload?.access, ["category", "status", "message"], 10, 160),
+  };
+  if (Buffer.byteLength(JSON.stringify(data), "utf8") > 1_800_000) {
+    throw new Error("The shared data snapshot is too large. Select fewer files or photos.");
+  }
+  return data;
+}
+
 io.use((socket, next) => {
   const remoteAddress = socket.handshake.address || "unknown";
   const { pairingCode, role } = socket.handshake.auth || {};
@@ -190,6 +221,7 @@ io.on("connection", (socket) => {
   if (socket.data.role === "dashboard") {
     socket.join("dashboards");
     socket.emit("device:list", publicDeviceList());
+    socket.emit("device:data:list", [...deviceData.entries()].map(([deviceId, data]) => ({ deviceId, ...data })));
     socket.emit("offer:current", currentOffer);
     socket.on("offer:update", (payload, callback) => {
       try {
@@ -256,8 +288,26 @@ io.on("connection", (socket) => {
     });
 
     socket.data.deviceId = deviceId;
+    socket.data.userConsented = true;
     broadcastDevices();
     callback?.({ ok: true });
+  });
+
+  socket.on("device:data:update", (payload, callback) => {
+    const deviceId = socket.data.deviceId;
+    const device = deviceId && devices.get(deviceId);
+    if (!socket.data.userConsented || !device || device.socketId !== socket.id || payload?.userConsented !== true) {
+      callback?.({ ok: false, error: "The phone owner must approve sharing before sending data." });
+      return;
+    }
+    try {
+      const data = normalizeDeviceData(payload);
+      deviceData.set(deviceId, data);
+      io.to("dashboards").emit("device:data:update", { deviceId, ...data });
+      callback?.({ ok: true, updatedAt: data.updatedAt });
+    } catch (error) {
+      callback?.({ ok: false, error: error.message });
+    }
   });
 
   socket.on("device:unregister", (callback) => {
@@ -270,7 +320,9 @@ io.on("connection", (socket) => {
     const device = devices.get(deviceId);
     if (device?.socketId === socket.id) {
       devices.delete(deviceId);
+      deviceData.delete(deviceId);
       broadcastDevices();
+      io.to("dashboards").emit("device:data:remove", { deviceId });
     }
     delete socket.data.deviceId;
     callback?.({ ok: true });
@@ -292,6 +344,8 @@ io.on("connection", (socket) => {
       });
 
       broadcastDevices();
+      deviceData.delete(deviceId);
+      io.to("dashboards").emit("device:data:remove", { deviceId });
     }
   });
 });

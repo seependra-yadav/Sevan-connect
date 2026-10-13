@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 import { Wifi, WifiOff } from "lucide-react";
 import { SERVER_URL } from "./lib/server";
 
-export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
+export default function LiveDevicePanel({ onDevicesChange, onDeviceDataChange, onAuthChange }) {
   const [pairingCode, setPairingCode] = useState("");
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
@@ -33,12 +33,14 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
       setConnected(false);
       onAuthChange(false);
       onDevicesChange([]);
+      onDeviceDataChange({});
       setError(connectionError.message || "Could not connect to the server.");
     });
     socket.on("disconnect", () => {
       setConnected(false);
       onAuthChange(false);
       onDevicesChange([]);
+      onDeviceDataChange({});
     });
     socket.on("device:list", (serverDevices) => {
       onDevicesChange(serverDevices.map((device) => ({
@@ -48,6 +50,19 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
         os: `Android ${device.osVersion}`,
         lastActive: device.lastSeen,
       })));
+    });
+    socket.on("device:data:list", (records) => {
+      onDeviceDataChange(Object.fromEntries(records.map(({ deviceId, ...data }) => [deviceId, data])));
+    });
+    socket.on("device:data:update", ({ deviceId, ...data }) => {
+      onDeviceDataChange((current) => ({ ...current, [deviceId]: data }));
+    });
+    socket.on("device:data:remove", ({ deviceId }) => {
+      onDeviceDataChange((current) => {
+        const next = { ...current };
+        delete next[deviceId];
+        return next;
+      });
     });
     socket.on("offer:current", (serverOffer) => {
       if (!serverOffer?.updatedAt) {
@@ -77,7 +92,7 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [attempt, connectionCode, onAuthChange, onDevicesChange]);
+  }, [attempt, connectionCode, onAuthChange, onDeviceDataChange, onDevicesChange]);
 
   function connectDashboard(event) {
     event.preventDefault();
@@ -97,6 +112,7 @@ export default function LiveDevicePanel({ onDevicesChange, onAuthChange }) {
     setAttempt(0);
     onAuthChange(false);
     onDevicesChange([]);
+    onDeviceDataChange({});
   }
 
   function publishOffer(event) {

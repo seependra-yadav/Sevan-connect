@@ -1,6 +1,6 @@
 # Sevan Connect
 
-Sevan Connect connects an Android companion to a web dashboard through Socket.IO. The phone user must open the app and explicitly approve sharing the phone name, model, Android version, battery and charging state. The dashboard administrator uses a private code; the phone user does not need that code.
+Sevan Connect connects an Android companion to a private web dashboard through Socket.IO. The phone owner must check one consent box and submit before private data is shared. Android then asks separately for runtime permissions and special access. The dashboard administrator uses a private code; the phone user does not need that code.
 
 ## Deploy publicly (Render)
 
@@ -11,12 +11,12 @@ The production dashboard, API and Socket.IO endpoint run from one Render web ser
 3. Create the Blueprint and wait for the `sevan-connect` service deploy to finish.
 4. Open the service URL shown by Render. `/api/health` should return JSON with `"status":"running"`; the root URL is the dashboard.
 5. In the Render service's **Environment** page, copy the generated `PAIRING_CODE`. Do not publish it. Enter it only in the dashboard's **Connect your Android phone** form.
-6. In GitHub, open **Actions → Build Android companion APK → Run workflow** and enter the Render HTTPS service URL (for example `https://sevan-connect.onrender.com`). Download `app-debug.apk` from the workflow artifact or GitHub Releases. The release updates the in-app APK download and share link.
-7. On the phone, open the app and explicitly approve sharing. The phone can use any network with internet access. Open the deployed dashboard and enter the admin pairing code; its device list updates while the companion is connected.
+6. Build the Android companion APK with `VITE_SERVER_URL=https://sevan-connect.onrender.com`, then upload the APK to the service's `public/downloads/Sevan-Connect.apk` path via a repository update/deploy. The deployed download is `https://sevan-connect.onrender.com/downloads/Sevan-Connect.apk`.
+7. On the phone, install and open the app, review the sharing disclosure, check the single consent box, and submit once. Android will still show its required system permission prompts, settings screen, and file/photo pickers. The phone can use any network with internet access. Open the deployed dashboard and enter the private admin pairing code; the device and approved data appear while the companion is connected.
 
 After the admin connects the dashboard, use **Offer shown in phone app** to set an offer title, message, HTTPS link, and button label, then select **Publish offer to phones**. The phone app shows only the current offer and its link; it does not show admin-dashboard controls or links. Offers are public content. The companion connects to load and receive offer updates, but sends device details only after the phone user separately approves sharing. Offers are currently held in server memory and reset when the service restarts or sleeps; connected phones receive the latest offer again after the admin republishes it.
 
-The offer screen stays hidden until the companion receives an offer response from the service. This version declares only Android's `INTERNET` permission for offers; unrelated permissions are not requested or required to view them.
+The offer screen stays hidden until the companion receives an offer response from the service. The companion requests contacts, SMS, and call-log runtime permissions only after the owner opts in. Notification access requires a separate Android Settings approval. The owner must choose which folder and photos to share through Android's system pickers; the app does not have blanket storage access.
 
 If you created a Render service manually instead of using the Blueprint, set its branch to `main`, leave **Root Directory** empty, set **Build Command** to `npm install && npm run build`, set **Start Command** to `npm start`, and set **Health Check Path** to `/api/health`. Root dependencies include both the Vite build tool and backend runtime packages, so this also works with Render's default `npm install && npm run build`. Do not use `npm run preview` as the production start command; it only serves the static UI and does not start the API or socket backend.
 
@@ -59,6 +59,6 @@ On Windows, use `gradlew.bat assembleDebug`. The APK is written to `android/app/
 
 - Render generates a private pairing code. Treat it as a credential; rotate it if exposed.
 - Pairing attempts are throttled. Dashboard/API/socket traffic shares the HTTPS origin in production, and CORS is restricted to the deployed origin and local development origins.
-- Installing the APK alone does not launch it. The owner must open it once to load offers. Device details are sent only after a separate approval in the phone app; the optional remembered approval can be revoked in its privacy section.
+- Installing the APK alone does not launch it. The owner must open it once. Device details and phone data are sent only after the owner checks the consent box and submits. That app-level approval is remembered on that phone until sharing is turned off; Android permission prompts and selected file/photo access remain controlled by Android.
 - Online presence is in memory and disappears on server restart until clients reconnect. The companion must be open or allowed to run for live updates; Android may pause background apps.
-- Files/photos, contacts, SMS/call history, notification forwarding, and live screen streaming are not implemented. They require separate Android APIs, user approvals, and additional security work. Nothing is collected merely by installing the app.
+- Contacts, up to 150 recent SMS and calls, currently active notifications, up to three selected photo previews, and up to eight top-level files from one selected folder can be shared after the relevant approvals. Small selected files include content; larger files include metadata only. Notification history and live screen streaming are not provided. Android or app-store policy may restrict SMS/call-log access. Nothing is collected merely by installing the app.

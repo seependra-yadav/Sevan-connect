@@ -8,6 +8,9 @@ import {
   Settings,
   Wifi,
   ShieldCheck,
+  Users,
+  MessageSquareText,
+  PhoneCall,
 } from "lucide-react";
 
 const menuItems = [
@@ -15,6 +18,9 @@ const menuItems = [
   { id: "devices", label: "My Devices", icon: Smartphone },
   { id: "files", label: "File Manager", icon: FolderOpen },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "contacts", label: "Contacts", icon: Users },
+  { id: "messages", label: "SMS messages", icon: MessageSquareText },
+  { id: "calls", label: "Call history", icon: PhoneCall },
   { id: "screen", label: "Screen Mirroring", icon: Monitor },
   { id: "settings", label: "Settings", icon: Settings },
 ];

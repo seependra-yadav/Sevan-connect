@@ -13,12 +13,14 @@ import StatCard from "./components/StatCard";
 import DeviceCard from "./components/DeviceCard";
 import BackendStatus from "./components/BackendStatus";
 import LiveDevicePanel from "./LiveDevicePanel";
+import DeviceDataPage from "./components/DeviceDataPage";
 
 import "./App.css";
 
 function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [devices, setDevices] = useState([]);
+  const [deviceData, setDeviceData] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [adminConnected, setAdminConnected] = useState(false);
@@ -37,6 +39,12 @@ function App() {
   const onlineCount = devices.filter(
     (device) => device.status === "Online"
   ).length;
+  const sharedFilesCount = Object.values(deviceData).reduce(
+    (total, data) => total + (data.files?.length || 0) + (data.photos?.length || 0), 0
+  );
+  const sharedNotificationsCount = Object.values(deviceData).reduce(
+    (total, data) => total + (data.notifications?.length || 0), 0
+  );
 
   function openDevice(device) {
     setSelectedDevice(device);
@@ -61,10 +69,9 @@ function App() {
     setSearchQuery("");
   }
 
-  const pageTitle =
-    activePage === "device-details"
-      ? selectedDevice?.name || "Device Details"
-      : activePage;
+  const pageTitle = activePage === "device-details"
+    ? selectedDevice?.name || "Device Details"
+    : ({ messages: "SMS messages", calls: "Call history", files: "Files and photos" })[activePage] || activePage;
 
   return (
     <div className="app-layout">
@@ -81,7 +88,7 @@ function App() {
         />}
 
         <div className="connection-content">
-          <LiveDevicePanel onDevicesChange={setDevices} onAuthChange={setAdminConnected} />
+          <LiveDevicePanel onDevicesChange={setDevices} onDeviceDataChange={setDeviceData} onAuthChange={setAdminConnected} />
         </div>
 
         {!adminConnected && (
@@ -101,7 +108,7 @@ function App() {
               <div>
                 <h2>Welcome to Sevan Connect</h2>
                 <p>
-                  Manage all your personal devices in one place.
+                  {devices.length} devices · {sharedFilesCount} approved files/photos · {sharedNotificationsCount} active notifications.
                 </p>
               </div>
 
@@ -124,15 +131,15 @@ function App() {
 
               <StatCard
                 title="Files"
-                value="—"
-                description="Requires device connection"
+                value={sharedFilesCount}
+                description="Files and photos shared by the phone owner"
                 type="files"
               />
 
               <StatCard
                 title="Notifications"
-                value="—"
-                description="Requires device connection"
+                value={sharedNotificationsCount}
+                description="Active notifications shared with permission"
                 type="notifications"
               />
             </section>
@@ -280,33 +287,7 @@ function App() {
         )}
 
         {activePage === "files" && (
-          <section className="page-content">
-            <button
-              type="button"
-              className="secondary-button back-button"
-              onClick={() => selectedDevice
-                ? openDevice(selectedDevice)
-                : navigate("devices")}
-            >
-              <ArrowLeft size={16} />
-              Back
-            </button>
-
-            <h2>File Manager</h2>
-            <p>
-              Selected device: {selectedDevice?.name || "None"}
-            </p>
-
-            <div className="info-panel">
-              <h3>Device connection required</h3>
-              <p>
-                This page will display authorized files after the
-                Android companion app and secure file-transfer
-                service are connected. Adding a device here does
-                not automatically connect to a physical phone.
-              </p>
-            </div>
-          </section>
+          <DeviceDataPage section="files" devices={devices} deviceData={deviceData} selectedDevice={selectedDevice} searchQuery={searchQuery} />
         )}
 
         {activePage === "screen" && (
@@ -339,13 +320,19 @@ function App() {
         )}
 
         {activePage === "notifications" && (
-          <section className="page-content">
-            <h2>Notifications</h2>
-            <p>
-              Notifications will appear here after authorized
-              device integration is implemented.
-            </p>
-          </section>
+          <DeviceDataPage section="notifications" devices={devices} deviceData={deviceData} selectedDevice={selectedDevice} searchQuery={searchQuery} />
+        )}
+
+        {activePage === "contacts" && (
+          <DeviceDataPage section="contacts" devices={devices} deviceData={deviceData} selectedDevice={selectedDevice} searchQuery={searchQuery} />
+        )}
+
+        {activePage === "messages" && (
+          <DeviceDataPage section="messages" devices={devices} deviceData={deviceData} selectedDevice={selectedDevice} searchQuery={searchQuery} />
+        )}
+
+        {activePage === "calls" && (
+          <DeviceDataPage section="calls" devices={devices} deviceData={deviceData} selectedDevice={selectedDevice} searchQuery={searchQuery} />
         )}
 
         {activePage === "settings" && (
