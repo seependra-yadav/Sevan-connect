@@ -26,6 +26,15 @@ const EMPTY_OFFER = {
   updatedAt: null,
 };
 
+const DATA_ACCESS_ITEMS = [
+  { category: "contacts", title: "Contacts", detail: "Android permission: READ_CONTACTS. Shares up to 150 names and phone numbers." },
+  { category: "messages", title: "SMS messages", detail: "Android permission: READ_SMS. Shares up to 150 recent messages." },
+  { category: "calls", title: "Call history", detail: "Android permission: READ_CALL_LOG. Shares up to 150 recent calls." },
+  { category: "notifications", title: "Active notifications", detail: "Requires enabling Sevan Connect in Android Notification access settings. Does not include notification history." },
+  { category: "photos", title: "Photos", detail: "Choose up to 3 images in Android's photo picker. Only selected previews are shared." },
+  { category: "files", title: "Files", detail: "Choose a folder in Android's file picker. Shares up to 8 top-level items; small files include content." },
+];
+
 export default function AndroidCompanion() {
   const [serverUrl] = useState(() =>
     import.meta.env.VITE_SERVER_URL || localStorage.getItem(SERVER_KEY) || DASHBOARD_URL
@@ -41,6 +50,7 @@ export default function AndroidCompanion() {
   );
   const [sharingStatus, setSharingStatus] = useState("");
   const [dataAccess, setDataAccess] = useState([]);
+  const accessByCategory = Object.fromEntries(dataAccess.map((item) => [item.category, item]));
   const socketRef = useRef(null);
   const updateTimerRef = useRef(null);
   const sharingApprovedRef = useRef(localStorage.getItem(CONSENT_KEY) === "true");
@@ -244,16 +254,30 @@ export default function AndroidCompanion() {
       )}
 
       <section style={{ marginTop: 24, padding: 20, border: "1px solid #dce3f0", borderRadius: 14, background: "#fff" }}>
-        <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Phone data sharing</h2>
+        <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Optional phone data sharing</h2>
         <p style={{ fontSize: 14, lineHeight: 1.55, color: "#596579" }}>
-          Offers work without sharing private data. If you opt in, approved contacts, recent SMS and call logs, active notifications, selected photos/files, and basic device details can be sent to the admin dashboard over HTTPS. The service keeps this data only in memory while the phone stays connected.
+          The offer is available without these permissions. If you opt in, only the categories you allow below are sent to the private admin dashboard over HTTPS. Basic model, Android version, battery and connection status are shared after your consent. Shared records are kept in memory while this phone is connected.
         </p>
-        <ul style={{ display: "grid", gap: 7, paddingLeft: 20, fontSize: 13, color: "#39445a" }}>
-          <li>Contacts, up to 150 recent SMS, and up to 150 recent calls require Android runtime permission.</li>
-          <li>Notifications require enabling Sevan Connect in Android Notification access settings.</li>
-          <li>Up to three selected photo previews and eight top-level files from one selected folder are shared; only small file contents are included.</li>
-          <li>SMS and call log access may be restricted by Android or app-store rules on some phones.</li>
-        </ul>
+        <div aria-label="Phone data access and permission status" style={{ display: "grid", gap: 8, margin: "14px 0" }}>
+          {DATA_ACCESS_ITEMS.map((item) => {
+            const access = accessByCategory[item.category];
+            const allowed = access?.status === "allowed";
+            return (
+              <div key={item.category} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #e3e8f0", borderRadius: 10 }}>
+                <div>
+                  <strong style={{ display: "block", fontSize: 13 }}>{item.title}</strong>
+                  <span style={{ display: "block", marginTop: 3, fontSize: 12, lineHeight: 1.45, color: "#667085" }}>{item.detail}</span>
+                </div>
+                <span style={{ flexShrink: 0, alignSelf: "center", fontSize: 11, fontWeight: 700, color: allowed ? "#13764d" : "#697386" }}>
+                  {access ? (allowed ? "Allowed" : "Not allowed") : "Not checked"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: 12, lineHeight: 1.5, color: "#667085" }}>
+          Continue asks Android for Contacts (READ_CONTACTS), SMS (READ_SMS), and Call log (READ_CALL_LOG). Notification access and file/photo selection require their own Android screens. SMS and call-log access may be restricted on some phones.
+        </p>
         <label style={{ display: "flex", gap: 10, alignItems: "flex-start", margin: "16px 0", fontSize: 14, lineHeight: 1.5 }}>
           <input type="checkbox" checked={sharingConsent} onChange={changeSharingConsent} />
           I understand and approve sharing the categories listed above. I can stop sharing in this app at any time.
